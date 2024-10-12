@@ -1,0 +1,65 @@
+import onnxruntime as ort
+import cv2
+import numpy as np
+
+# Функция для прорисовки боксов на изображении
+def draw_boxes(image, boxes, confidences, class_ids):
+    for (box, conf, cls_id) in zip(boxes, confidences, class_ids):
+        x1, y1, x2, y2 = map(int, box)  # Преобразование координат в int
+        label = f'Class: {int(cls_id)}, Conf: {conf:.2f}'
+        
+        # Выводим текст в консоль
+        print(label)
+        
+        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)  # Зелёная рамка
+        # Убедитесь, что текст рисуется с правильным сдвигом
+        cv2.putText(image, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)  # Метка
+
+# Загрузка модели YOLOv8 в формате ONNX
+session = ort.InferenceSession("runs/detect/train10/weights/best.onnx")
+
+# Загрузка и подготовка изображения
+image = cv2.imread('C:/Users/mustafin_rf/Desktop/neuro/dataset/test/images/2.jpg')
+image_resized = cv2.resize(image, (640, 640))
+image_np = np.transpose(image_resized, (2, 0, 1)).astype(np.float32)  # [C, H, W] формат для модели
+image_np = np.expand_dims(image_np, axis=0)  # Добавляем размерность батча [1, C, H, W]
+image_np /= 255.0  # Нормализация изображений как требует YOLO
+
+# Выполнение предсказания
+outputs = session.run(None, {"images": image_np})
+
+# Выводим форму выходного массива для диагностики
+print("Outputs shape:", [output.shape for output in outputs])
+
+# Проверка формата предсказаний и их обработка
+preds = outputs[0]  # Предсказания из модели ONNX
+
+# Фильтрация предсказаний по порогу уверенности
+conf_thres = 0.25  # Порог уверенности
+boxes = []
+confidences = []
+class_ids = []
+
+for pred in preds[0]:  # Проходим по всем предсказаниям
+    # Пробуем использовать меньшее количество переменных для распаковки
+    if pred.size > 6:
+        # Если размер больше 6, возможно, там лишние данные
+        # Пробуем взять только первые 6 значений
+        pred = pred[:6]
+    elif pred.size < 6:
+        continue  # Пропускаем предсказания, если их недостаточно
+    
+    x1, y1, x2, y2, conf, cls_id = pred  # Разбиваем каждый предсказанный объект на составляющие
+
+    if conf > conf_thres:  # Проверка на порог уверенности
+        boxes.append([x1, y1, x2, y2])
+        confidences.append(conf)
+        class_ids.append(cls_id)
+
+# Рисуем боксы на изображении
+draw_boxes(image_resized, boxes, confidences, class_ids)
+
+# Отображение изображения с выделенными объектами
+cv2.imshow('Result', image_resized)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
